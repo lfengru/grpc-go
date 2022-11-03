@@ -107,7 +107,6 @@ type http2Client struct {
 	streamsQuotaAvailable chan struct{}
 	waitingStreams        uint32
 	nextID                uint32
-	registeredCompressors string
 
 	// Do not access controlBuf with mu held.
 	mu            sync.Mutex // guard the following variables
@@ -313,7 +312,6 @@ func newHTTP2Client(connectCtx, ctx context.Context, addr resolver.Address, opts
 		ctxDone:               ctx.Done(), // Cache Done chan.
 		cancel:                cancel,
 		userAgent:             opts.UserAgent,
-		registeredCompressors: grpcutil.RegisteredCompressors(),
 		conn:                  conn,
 		remoteAddr:            conn.RemoteAddr(),
 		localAddr:             conn.LocalAddr(),
@@ -530,22 +528,9 @@ func (t *http2Client) createHeaderFields(ctx context.Context, callHdr *CallHdr) 
 		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-previous-rpc-attempts", Value: strconv.Itoa(callHdr.PreviousAttempts)})
 	}
 
-	registeredCompressors := t.registeredCompressors
 	if callHdr.SendCompress != "" {
 		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-encoding", Value: callHdr.SendCompress})
-		// Include the outgoing compressor name when compressor is not registered
-		// via encoding.RegisterCompressor. This is possible when client uses
-		// WithCompressor dial option.
-		if !grpcutil.IsCompressorNameRegistered(callHdr.SendCompress) {
-			if registeredCompressors != "" {
-				registeredCompressors += ","
-			}
-			registeredCompressors += callHdr.SendCompress
-		}
-	}
-
-	if registeredCompressors != "" {
-		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-accept-encoding", Value: registeredCompressors})
+		headerFields = append(headerFields, hpack.HeaderField{Name: "grpc-accept-encoding", Value: callHdr.SendCompress})
 	}
 	if dl, ok := ctx.Deadline(); ok {
 		// Send out timeout regardless its value. The server can detect timeout context by itself.
